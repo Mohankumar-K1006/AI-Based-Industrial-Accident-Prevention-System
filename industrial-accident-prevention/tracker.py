@@ -1,6 +1,6 @@
 """
-tracker.py — Centroid-Based Worker Tracker
-==========================================
+tracker.py — Centroid-Based Worker Tracker (with Keypoints)
+============================================================
 Responsibilities:
   1. Accept a list of person detections (from detector.py) each frame.
   2. Assign a stable Worker ID to each person across consecutive frames.
@@ -8,7 +8,16 @@ Responsibilities:
      Euclidean distance between centroids.
   4. Create new IDs for workers who appear for the first time.
   5. Remove IDs for workers who disappear for too many frames.
-  6. Return an enriched list with worker_id added to each detection.
+  6. Store and forward keypoints + edge_points alongside centroid/bbox.
+  7. Return an enriched list with worker_id added to each detection.
+
+Changes from v1:
+  - Each track now stores "keypoints" and "edge_points" alongside
+    the existing centroid/bbox/confidence.
+  - _build_output() includes these new fields so that main.py and
+    zones.py can use multi-point zone checking.
+  - Tracking STILL uses centroid distance (proven, fast approach).
+  - Also stores "in_vehicle" and "vehicle_info" for vehicle awareness.
 
 Algorithm overview (simple centroid tracker):
   ┌─────────────────────────────────────────────────────────────────┐
@@ -46,10 +55,14 @@ class CentroidTracker:
             Currently active tracks.
             Key   = worker_id  (int)
             Value = dict with:
-                "centroid"   : (cx, cy) — last known centroid
-                "bbox"       : (x1, y1, x2, y2) — last known bounding box
-                "confidence" : float — last known confidence score
-                "missing"    : int   — consecutive frames this track was NOT matched
+                "centroid"     : (cx, cy) — last known centroid
+                "bbox"         : (x1, y1, x2, y2) — last known bounding box
+                "confidence"   : float — last known confidence score
+                "keypoints"    : list of 17 (x, y, conf) tuples — skeleton
+                "edge_points"  : list of (x, y) — body edge coordinates
+                "in_vehicle"   : bool — whether person is inside a vehicle
+                "vehicle_info" : dict or None — vehicle details
+                "missing"      : int — consecutive frames not matched
     """
 
     def __init__(self):
@@ -68,15 +81,20 @@ class CentroidTracker:
         Args:
             detections : list[dict]
                 Output of detector.detect_persons(). Each dict has:
-                    "bbox", "confidence", "class_id", "centroid"
+                    "bbox", "confidence", "class_id", "centroid",
+                    "keypoints", "edge_points", "in_vehicle", "vehicle_info"
 
         Returns:
             tracked_workers : list[dict]
                 Each dict contains:
-                    "worker_id"  : int           — stable ID (e.g. 1, 2, 3)
-                    "bbox"       : (x1,y1,x2,y2) — bounding box
-                    "centroid"   : (cx, cy)       — centroid
-                    "confidence" : float          — detection confidence
+                    "worker_id"    : int
+                    "bbox"         : (x1,y1,x2,y2)
+                    "centroid"     : (cx, cy)
+                    "confidence"   : float
+                    "keypoints"    : list of (x,y,conf) tuples
+                    "edge_points"  : list of (x,y) tuples
+                    "in_vehicle"   : bool
+                    "vehicle_info" : dict or None
         """
         # ─────────────────────────────────────
         #  CASE 1: No existing tracks at all.
@@ -100,8 +118,7 @@ class CentroidTracker:
         #  → Run the centroid matching algorithm.
         # ─────────────────────────────────────
 
-        # Step 3a: Build a list of (distance, track_id, detection_index)
-        #          for every possible old↔new pair.
+        # Step 3a: Build distance pairs
         track_ids = list(self.tracks.keys())
         distance_pairs = []
 
@@ -112,32 +129,29 @@ class CentroidTracker:
                 dist = self._euclidean(old_centroid, new_centroid)
                 distance_pairs.append((dist, tid, d_idx))
 
-        # Step 3b: Sort by distance — closest pairs first.
+        # Step 3b: Sort by distance
         distance_pairs.sort(key=lambda x: x[0])
 
-        # Step 3c: Greedy matching.
-        #   - Pick the shortest distance pair.
-        #   - If distance ≤ MAX_TRACKING_DISTANCE → it's a match.
-        #   - Remove both the track and the detection from candidates.
-        #   - Repeat until no more valid pairs.
+        # Step 3c: Greedy matching
         matched_track_ids = set()
         matched_det_indices = set()
 
         for dist, tid, d_idx in distance_pairs:
-            # Skip if either side was already matched.
             if tid in matched_track_ids or d_idx in matched_det_indices:
                 continue
-
-            # Skip if the distance exceeds the maximum allowed.
             if dist > config.MAX_TRACKING_DISTANCE:
                 continue
 
-            # ── Match found! Update this track with the new detection. ──
+            # Match found! Update this track with the new detection.
             det = detections[d_idx]
-            self.tracks[tid]["centroid"]   = det["centroid"]
-            self.tracks[tid]["bbox"]       = det["bbox"]
-            self.tracks[tid]["confidence"] = det["confidence"]
-            self.tracks[tid]["missing"]    = 0     # reset missing counter
+            self.tracks[tid]["centroid"]     = det["centroid"]
+            self.tracks[tid]["bbox"]         = det["bbox"]
+            self.tracks[tid]["confidence"]   = det["confidence"]
+            self.tracks[tid]["keypoints"]    = det.get("keypoints", [])
+            self.tracks[tid]["edge_points"]  = det.get("edge_points", [])
+            self.tracks[tid]["in_vehicle"]   = det.get("in_vehicle", False)
+            self.tracks[tid]["vehicle_info"] = det.get("vehicle_info", None)
+            self.tracks[tid]["missing"]      = 0
 
             matched_track_ids.add(tid)
             matched_det_indices.add(d_idx)
@@ -164,10 +178,14 @@ class CentroidTracker:
     def _register_new_worker(self, detection):
         """Create a new track entry with a fresh worker ID."""
         self.tracks[self.next_worker_id] = {
-            "centroid":   detection["centroid"],
-            "bbox":       detection["bbox"],
-            "confidence": detection["confidence"],
-            "missing":    0,
+            "centroid":     detection["centroid"],
+            "bbox":         detection["bbox"],
+            "confidence":   detection["confidence"],
+            "keypoints":    detection.get("keypoints", []),
+            "edge_points":  detection.get("edge_points", []),
+            "in_vehicle":   detection.get("in_vehicle", False),
+            "vehicle_info": detection.get("vehicle_info", None),
+            "missing":      0,
         }
         self.next_worker_id += 1
 
@@ -180,8 +198,7 @@ class CentroidTracker:
     def _remove_stale_tracks(self):
         """
         Delete any track whose missing counter exceeds
-        config.MAX_FRAMES_MISSING.  This means the worker has
-        left the camera view (or was occluded for too long).
+        config.MAX_FRAMES_MISSING.
         """
         stale_ids = [
             tid for tid, info in self.tracks.items()
@@ -196,21 +213,23 @@ class CentroidTracker:
         that main.py expects.
 
         Returns:
-            list[dict] with keys: worker_id, bbox, centroid, confidence
+            list[dict] with keys: worker_id, bbox, centroid, confidence,
+            keypoints, edge_points, in_vehicle, vehicle_info
             Sorted by worker_id for consistent display order.
         """
         output = []
         for tid, info in self.tracks.items():
-            # Only include tracks that are currently visible
-            # (missing == 0 means matched this frame).
             if info["missing"] == 0:
                 output.append({
-                    "worker_id":  tid,
-                    "bbox":       info["bbox"],
-                    "centroid":   info["centroid"],
-                    "confidence": info["confidence"],
+                    "worker_id":    tid,
+                    "bbox":         info["bbox"],
+                    "centroid":     info["centroid"],
+                    "confidence":   info["confidence"],
+                    "keypoints":    info["keypoints"],
+                    "edge_points":  info["edge_points"],
+                    "in_vehicle":   info["in_vehicle"],
+                    "vehicle_info": info["vehicle_info"],
                 })
-        # Sort so that Worker 1 always appears before Worker 2, etc.
         output.sort(key=lambda x: x["worker_id"])
         return output
 
@@ -220,13 +239,6 @@ class CentroidTracker:
         Compute the Euclidean distance between two 2D points.
 
         Formula:  d = √((x₂ - x₁)² + (y₂ - y₁)²)
-
-        Args:
-            point_a : (x1, y1)
-            point_b : (x2, y2)
-
-        Returns:
-            float — distance in pixels.
         """
         return math.sqrt(
             (point_a[0] - point_b[0]) ** 2 +
@@ -274,7 +286,7 @@ if __name__ == "__main__":
         frame_count += 1
         start_time = time.time()
 
-        # Step 1: Detect persons
+        # Step 1: Detect persons with keypoints
         detections = detector.detect_persons(model, frame)
 
         # Step 2: Update tracker with new detections
@@ -305,6 +317,11 @@ if __name__ == "__main__":
                         cv2.FONT_HERSHEY_SIMPLEX, config.FONT_SCALE,
                         (255, 255, 255), config.FONT_THICKNESS)
 
+            # Draw skeleton
+            keypoints = worker.get("keypoints", [])
+            if keypoints:
+                detector.draw_skeleton(frame, keypoints)
+
             # Centroid dot
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
 
@@ -322,8 +339,12 @@ if __name__ == "__main__":
                   f"Visible: {len(tracked_workers)} | "
                   f"Active tracks: {len(tracker.tracks)}")
             for w in tracked_workers:
+                vehicle_tag = " [IN VEHICLE]" if w.get("in_vehicle") else ""
                 print(f"  └─ Worker {w['worker_id']}  "
-                      f"centroid={w['centroid']}  conf={w['confidence']:.4f}")
+                      f"centroid={w['centroid']}  "
+                      f"edges={len(w.get('edge_points', []))}  "
+                      f"conf={w['confidence']:.4f}"
+                      f"{vehicle_tag}")
 
         cv2.imshow("Tracker Self-Test", frame)
 

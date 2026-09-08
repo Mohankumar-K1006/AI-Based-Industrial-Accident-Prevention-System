@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# YOLO model weights (large files - users should download separately)
+*.pt
+
+# Output files
+output/
+screenshots/
+
+# Videos (large files)
+videos/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Gemini
+.agents/

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Admin Dashboard for AI-Based Industrial Accident Prevention System — Real-time worker tracking, danger zone management, and CCTV monitoring.">
+    <title>Admin Dashboard — AI Accident Prevention</title>
+    <link rel="stylesheet" href="/static/admin.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!--  TOP NAVIGATION BAR                        -->
+    <!-- ═══════════════════════════════════════════ -->
+    <nav id="nav-bar">
+        <div class="nav-brand">
+            <div class="nav-logo">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <circle cx="14" cy="14" r="12" stroke="url(#grad)" stroke-width="2.5" fill="none"/>
+                    <path d="M14 6 L14 16 M14 20 L14 22" stroke="url(#grad)" stroke-width="2.5" stroke-linecap="round"/>
+                    <defs><linearGradient id="grad" x1="0" y1="0" x2="28" y2="28">
+                        <stop offset="0%" stop-color="#ff6b6b"/><stop offset="100%" stop-color="#ffa502"/>
+                    </linearGradient></defs>
+                </svg>
+            </div>
+            <div class="nav-title">
+                <h1>AI Accident Prevention</h1>
+                <span class="nav-subtitle">Admin Control Panel</span>
+            </div>
+        </div>
+        <div class="nav-stats">
+            <div class="stat-chip" id="stat-fps">
+                <span class="stat-label">FPS</span>
+                <span class="stat-value" id="fps-value">—</span>
+            </div>
+            <div class="stat-chip" id="stat-workers">
+                <span class="stat-label">Workers</span>
+                <span class="stat-value" id="workers-count">0</span>
+            </div>
+            <div class="stat-chip" id="stat-uptime">
+                <span class="stat-label">Uptime</span>
+                <span class="stat-value" id="uptime-value">00:00:00</span>
+            </div>
+            <div class="stat-chip status-indicator" id="system-status">
+                <div class="pulse-dot"></div>
+                <span>LIVE</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!--  MAIN CONTENT                              -->
+    <!-- ═══════════════════════════════════════════ -->
+    <main id="main-content">
+
+        <!-- ─── LEFT COLUMN: Video + Zone Drawing ─── -->
+        <div class="col-video">
+            <div class="panel glass-panel" id="video-panel">
+                <div class="panel-header">
+                    <h2>📹 Live CCTV Feed</h2>
+                    <div class="panel-actions">
+                        <button id="btn-toggle-zones" class="btn btn-sm btn-outline" title="Toggle zone overlay">
+                            🗺️ Zones
+                        </button>
+                    </div>
+                </div>
+                <div class="video-container" id="video-container">
+                    <img id="video-stream" src="/video_feed" alt="Live CCTV Feed">
+                    <canvas id="zone-canvas" width="640" height="480"></canvas>
+                    <div class="video-overlay-info" id="video-overlay-info">
+                        <span id="overlay-mode">MONITORING</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Zone Drawing Controls -->
+            <div class="panel glass-panel" id="zone-controls-panel">
+                <div class="panel-header">
+                    <h2>🎯 Danger Zone Manager</h2>
+                </div>
+                <div class="zone-controls">
+                    <div class="zone-toolbar">
+                        <div class="zone-type-select">
+                            <label>Zone Type:</label>
+                            <select id="zone-type-select">
+                                <option value="DANGER">🔴 DANGER</option>
+                                <option value="WARNING">🟡 WARNING</option>
+                            </select>
+                        </div>
+                        <div class="zone-name-input">
+                            <label>Zone Name:</label>
+                            <input type="text" id="zone-name-input" placeholder="e.g. Machine Area" maxlength="40">
+                        </div>
+                    </div>
+                    <div class="zone-action-buttons">
+                        <button id="btn-start-drawing" class="btn btn-primary">
+                            ✏️ Start Drawing Zone
+                        </button>
+                        <button id="btn-finish-zone" class="btn btn-success" disabled>
+                            ✅ Finish & Save Zone
+                        </button>
+                        <button id="btn-cancel-drawing" class="btn btn-outline" disabled>
+                            ❌ Cancel
+                        </button>
+                        <button id="btn-undo-point" class="btn btn-outline" disabled>
+                            ↩️ Undo Point
+                        </button>
+                    </div>
+                    <div class="zone-instructions" id="zone-instructions">
+                        <p>Click <strong>"Start Drawing Zone"</strong> then click on the video feed to place polygon vertices. Minimum 3 points required.</p>
+                    </div>
+                    <div class="points-counter" id="points-counter" style="display:none;">
+                        Points placed: <strong id="point-count">0</strong>
+                    </div>
+                </div>
+
+                <!-- Existing Zones List -->
+                <div class="existing-zones">
+                    <h3>Active Zones</h3>
+                    <div id="zones-list" class="zones-list">
+                        <div class="zone-empty">Loading zones...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── RIGHT COLUMN: Workers + Alerts ─── -->
+        <div class="col-info">
+
+            <!-- Worker Status Table -->
+            <div class="panel glass-panel" id="workers-panel">
+                <div class="panel-header">
+                    <h2>👷 Employee Status</h2>
+                    <div class="panel-badge" id="danger-badge" style="display:none;">
+                        <span class="badge badge-danger">⚠ DANGER</span>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table id="workers-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Position</th>
+                                <th>Body Pts</th>
+                                <th>Time in Zone</th>
+                                <th>Vehicle</th>
+                            </tr>
+                        </thead>
+                        <tbody id="workers-tbody">
+                            <tr class="empty-row">
+                                <td colspan="6">No workers detected</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Alert Log -->
+            <div class="panel glass-panel" id="alerts-panel">
+                <div class="panel-header">
+                    <h2>🚨 Alert Log</h2>
+                    <div class="panel-actions">
+                        <span class="alert-counter" id="alert-total">0 alerts</span>
+                    </div>
+                </div>
+                <div class="alerts-scroll" id="alerts-scroll">
+                    <div class="alert-empty" id="alert-empty">
+                        No alerts yet. Workers approaching danger zones will appear here.
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Info -->
+            <div class="panel glass-panel" id="system-panel">
+                <div class="panel-header">
+                    <h2>⚙️ System Info</h2>
+                </div>
+                <div class="system-grid">
+                    <div class="sys-item">
+                        <span class="sys-label">Total Workers Tracked</span>
+                        <span class="sys-value" id="sys-total-workers">0</span>
+                    </div>
+                    <div class="sys-item">
+                        <span class="sys-label">Frames Processed</span>
+                        <span class="sys-value" id="sys-frames">0</span>
+                    </div>
+                    <div class="sys-item">
+                        <span class="sys-label">Total Alerts</span>
+                        <span class="sys-value" id="sys-total-alerts">0</span>
+                    </div>
+                    <div class="sys-item">
+                        <span class="sys-label">Active Zones</span>
+                        <span class="sys-value" id="sys-active-zones">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="/static/admin.js"></script>
+</body>
+</html>

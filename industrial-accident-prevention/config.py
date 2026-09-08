@@ -20,15 +20,84 @@ VIDEO_SOURCE = 0
 # ──────────────────────────────────────────────
 #  YOLO MODEL SETTINGS
 # ──────────────────────────────────────────────
-# Path to the YOLO model weights file.
-# The first run will auto-download "yolov8n.pt" (~6 MB) if not found.
-YOLO_MODEL_PATH = "yolov8n.pt"
+# Path to the YOLO pose model weights file for skeleton/keypoint detection.
+# The first run will auto-download "yolov8n-pose.pt" (~6 MB) if not found.
+YOLO_POSE_MODEL_PATH = "yolov8n-pose.pt"
+
+# Path to the standard YOLO model for vehicle detection.
+# Used alongside the pose model to detect cars, trucks, buses, forklifts.
+YOLO_VEHICLE_MODEL_PATH = "yolov8n.pt"
+
+# Legacy alias — kept for backward compatibility with self-test scripts.
+YOLO_MODEL_PATH = YOLO_POSE_MODEL_PATH
 
 # Minimum confidence score to accept a detection (0.0 – 1.0).
 YOLO_CONFIDENCE_THRESHOLD = 0.45
 
 # COCO class ID for "person" (do not change unless using a custom model).
 PERSON_CLASS_ID = 0
+
+# ──────────────────────────────────────────────
+#  SKELETON / KEYPOINT SETTINGS
+# ──────────────────────────────────────────────
+# Toggle skeleton visualisation on/off.
+SKELETON_DRAW = True
+
+# Minimum confidence for a keypoint to be considered valid (0.0 – 1.0).
+# Keypoints below this threshold are ignored in zone checks and drawing.
+KEYPOINT_CONFIDENCE_THRESHOLD = 0.3
+
+# COCO Pose keypoint names (17 total):
+#   0  Nose              5  Left Shoulder    10 Right Wrist
+#   1  Left Eye          6  Right Shoulder   11 Left Hip
+#   2  Right Eye         7  Left Elbow       12 Right Hip
+#   3  Left Ear          8  Right Elbow      13 Left Knee
+#   4  Right Ear         9  Left Wrist       14 Right Knee
+#                                             15 Left Ankle
+#                                             16 Right Ankle
+
+# Indices of keypoints considered "body edges" for zone boundary checks.
+# If ANY of these points enters a zone, the worker is classified into that zone.
+EDGE_KEYPOINT_INDICES = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+
+# Skeleton connections for drawing (pairs of keypoint indices).
+SKELETON_CONNECTIONS = [
+    (0, 1), (0, 2),        # Nose → Eyes
+    (1, 3), (2, 4),        # Eyes → Ears
+    (5, 6),                # Shoulder → Shoulder
+    (5, 7), (7, 9),        # Left Shoulder → Elbow → Wrist
+    (6, 8), (8, 10),       # Right Shoulder → Elbow → Wrist
+    (5, 11), (6, 12),      # Shoulders → Hips
+    (11, 12),              # Hip → Hip
+    (11, 13), (13, 15),    # Left Hip → Knee → Ankle
+    (12, 14), (14, 16),    # Right Hip → Knee → Ankle
+]
+
+# Colours for skeleton drawing (BGR)
+SKELETON_LINE_COLOR = (255, 200, 50)    # Light blue
+SKELETON_JOINT_COLOR = (0, 255, 128)    # Green-yellow
+SKELETON_LINE_THICKNESS = 2
+SKELETON_JOINT_RADIUS = 4
+
+# ──────────────────────────────────────────────
+#  VEHICLE DETECTION SETTINGS
+# ──────────────────────────────────────────────
+# Enable/disable vehicle detection.
+DETECT_VEHICLES = True
+
+# COCO class IDs for vehicles of interest.
+#   2 = car,  5 = bus,  7 = truck
+VEHICLE_CLASS_IDS = [2, 5, 7]
+
+# COCO class names for display (indexed by class ID).
+VEHICLE_CLASS_NAMES = {2: "Car", 5: "Bus", 7: "Truck"}
+
+# Minimum bounding-box overlap ratio to consider a person "inside" a vehicle.
+# Uses the fraction of the person bbox area that overlaps with the vehicle bbox.
+VEHICLE_OVERLAP_THRESHOLD = 0.4
+
+# Colour for vehicle bounding boxes (BGR).
+COLOR_VEHICLE = (255, 200, 0)    # Cyan
 
 # ──────────────────────────────────────────────
 #  TRACKER SETTINGS
@@ -53,6 +122,9 @@ MAX_FRAMES_MISSING = 30
 #
 # The WARNING zone is the outer boundary — workers get a caution alert.
 # The DANGER zone is the inner/critical area — workers get a loud alarm.
+#
+# NOTE: These are DEFAULT zones. If zones_config.json exists (created by
+# the admin dashboard), those zones will OVERRIDE these defaults.
 
 WARNING_ZONE = np.array([
     [200, 150],
@@ -67,6 +139,9 @@ DANGER_ZONE = np.array([
     [420, 350],
     [280, 350],
 ], dtype=np.int32)
+
+# Path to the JSON file where admin-defined zones are persisted.
+ZONES_CONFIG_FILE = "zones_config.json"
 
 # ──────────────────────────────────────────────
 #  ZONE DISPLAY COLOURS  (BGR format for OpenCV)
@@ -100,3 +175,11 @@ ALERT_COOLDOWN = 2.0
 #  DISPLAY WINDOW
 # ──────────────────────────────────────────────
 WINDOW_NAME = "AI Accident Prevention System"
+
+# ──────────────────────────────────────────────
+#  ADMIN DASHBOARD SETTINGS (Flask)
+# ──────────────────────────────────────────────
+ADMIN_HOST = "0.0.0.0"          # Accessible from any device on the network
+ADMIN_PORT = 5000
+ADMIN_SECRET_KEY = "industrial-safety-2026"
+ADMIN_ENABLED = True            # Set to False to disable the web dashboard
