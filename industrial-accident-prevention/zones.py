@@ -88,8 +88,11 @@ def load_zones():
                     "created_at": zone_data.get("created_at", ""),
                 })
 
-            print(f"[zones] Loaded {len(_active_zones)} zones from {config.ZONES_CONFIG_FILE}")
-            return
+            if _active_zones:
+                print(f"[zones] Loaded {len(_active_zones)} zones from {config.ZONES_CONFIG_FILE}")
+                return
+            else:
+                print(f"[zones] {config.ZONES_CONFIG_FILE} has no zones. Falling back to config.py defaults.")
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             print(f"[zones] Error loading {config.ZONES_CONFIG_FILE}: {e}")
@@ -354,25 +357,35 @@ def draw_zones(frame, zones_list=None):
 
     alpha = config.ZONE_OVERLAY_ALPHA
 
-    # Step 1: Create an overlay copy for transparent fill
-    overlay = frame.copy()
+    if not zones_list:
+        return frame
 
-    # Step 2: Draw filled polygons on the overlay
-    for zone in zones_list:
-        zone_type = zone["type"]
-        points = zone["points"]
+    # Step 1 & 2: Bounding-box restricted overlay for fast transparent fill
+    all_pts = np.vstack([z["points"] for z in zones_list])
+    min_x = max(0, int(np.min(all_pts[:, 0])))
+    max_x = min(frame.shape[1], int(np.max(all_pts[:, 0])))
+    min_y = max(0, int(np.min(all_pts[:, 1])))
+    max_y = min(frame.shape[0], int(np.max(all_pts[:, 1])))
 
-        if zone_type == "DANGER":
-            color = config.COLOR_DANGER
-        elif zone_type == "WARNING":
-            color = config.COLOR_WARNING
-        else:
-            color = config.COLOR_SAFE
+    if max_x > min_x and max_y > min_y:
+        roi = frame[min_y:max_y, min_x:max_x]
+        overlay_roi = roi.copy()
 
-        cv2.fillPoly(overlay, [points.reshape(-1, 1, 2)], color)
+        for zone in zones_list:
+            zone_type = zone["type"]
+            points = zone["points"] - [min_x, min_y]
 
-    # Step 3: Blend overlay with original frame
-    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+            if zone_type == "DANGER":
+                color = config.COLOR_DANGER
+            elif zone_type == "WARNING":
+                color = config.COLOR_WARNING
+            else:
+                color = config.COLOR_SAFE
+
+            cv2.fillPoly(overlay_roi, [points.reshape(-1, 1, 2)], color)
+
+        # Blend only the ROI back into the frame
+        cv2.addWeighted(overlay_roi, alpha, roi, 1 - alpha, 0, roi)
 
     # Step 4: Draw solid polygon borders + labels on top
     for zone in zones_list:

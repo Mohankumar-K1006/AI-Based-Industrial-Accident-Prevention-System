@@ -66,7 +66,7 @@ class SharedState:
     def set_frame(self, frame):
         """Store the latest frame from the CV pipeline."""
         with self._lock:
-            self._current_frame = frame.copy()
+            self._current_frame = frame.copy() if frame is not None else None
 
     def get_frame(self):
         """Get a copy of the latest frame. Returns None if no frame yet."""
@@ -89,7 +89,8 @@ class SharedState:
                 edge_points, in_vehicle, vehicle_info
         """
         with self._lock:
-            self._workers = copy.deepcopy(workers_with_status)
+            # Fast shallow copy of list of dicts (replaces slow deepcopy)
+            self._workers = [dict(w) for w in workers_with_status]
 
             # Update worker history
             current_time = time.time()
@@ -123,7 +124,7 @@ class SharedState:
     def get_workers(self):
         """Get a copy of the current worker list."""
         with self._lock:
-            return copy.deepcopy(self._workers)
+            return [dict(w) for w in self._workers]
 
     def get_worker_history(self, worker_id=None):
         """
@@ -137,10 +138,9 @@ class SharedState:
         """
         with self._lock:
             if worker_id is not None:
-                return copy.deepcopy(
-                    self._worker_history.get(worker_id, {})
-                )
-            return copy.deepcopy(self._worker_history)
+                h = self._worker_history.get(worker_id, {})
+                return dict(h)
+            return {k: dict(v) for k, v in self._worker_history.items()}
 
     # ──────────────────────────────────────────
     #  VEHICLE DATA
@@ -149,12 +149,12 @@ class SharedState:
     def set_vehicles(self, vehicles):
         """Store the current vehicle detections."""
         with self._lock:
-            self._vehicles = copy.deepcopy(vehicles)
+            self._vehicles = [dict(v) for v in vehicles]
 
     def get_vehicles(self):
         """Get a copy of current vehicle detections."""
         with self._lock:
-            return copy.deepcopy(self._vehicles)
+            return [dict(v) for v in self._vehicles]
 
     # ──────────────────────────────────────────
     #  ALERT LOG

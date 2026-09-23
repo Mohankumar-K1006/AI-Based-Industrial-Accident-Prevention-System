@@ -69,6 +69,8 @@ class AlertManager:
         # Tracks the last time a beep was triggered for each worker.
         # Key = worker_id (int), Value = timestamp (float).
         self._last_beep_time = {}
+        self._last_warning_time = {}
+        self._last_global_beep_time = 0.0
 
         # Flag to prevent overlapping beep threads.
         # Only one beep can play at a time.
@@ -83,13 +85,17 @@ class AlertManager:
         Handle a WARNING-level alert for a worker.
 
         Actions:
-          - Print a warning message to the terminal.
+          - Print a warning message to the terminal (throttled).
           - No audible beep (warnings are visual/log only).
 
         Args:
             worker_id : int — the tracked worker's ID.
         """
-        print(f"  ⚠  WARNING: Worker {worker_id} approaching danger zone")
+        current_time = time.time()
+        last_time = self._last_warning_time.get(worker_id, 0)
+        if current_time - last_time >= config.ALERT_COOLDOWN:
+            self._last_warning_time[worker_id] = current_time
+            print(f"  ⚠  WARNING: Worker {worker_id} approaching danger zone")
 
     # ──────────────────────────────────────────
     #  DANGER ALERT
@@ -102,25 +108,20 @@ class AlertManager:
         Actions:
           - Print a danger message to the terminal.
           - Play an audible beep IF the cooldown period has elapsed
-            for this worker.
+            for this worker and globally.
 
         Args:
             worker_id : int — the tracked worker's ID.
-
-        Cooldown logic:
-          If less than ALERT_COOLDOWN seconds have passed since
-          the last beep for this worker, the beep is skipped.
-          This prevents the speaker from firing on every frame
-          (~30 times per second).
         """
-        print(f"  🚨 DANGER: Worker {worker_id} entered restricted zone!")
-
         current_time = time.time()
-        last_time = self._last_beep_time.get(worker_id, 0)
+        last_worker_time = self._last_beep_time.get(worker_id, 0)
 
-        # Check if enough time has passed since the last beep.
-        if current_time - last_time >= config.ALERT_COOLDOWN:
+        # Check if enough time has passed both per-worker and globally
+        if (current_time - last_worker_time >= config.ALERT_COOLDOWN and
+                current_time - self._last_global_beep_time >= 1.5):
             self._last_beep_time[worker_id] = current_time
+            self._last_global_beep_time = current_time
+            print(f"  🚨 DANGER: Worker {worker_id} entered restricted zone!")
             self._play_beep()
 
     # ──────────────────────────────────────────

@@ -139,13 +139,35 @@ class CentroidTracker:
         for dist, tid, d_idx in distance_pairs:
             if tid in matched_track_ids or d_idx in matched_det_indices:
                 continue
-            if dist > config.MAX_TRACKING_DISTANCE:
+
+            # Adaptive distance threshold: allow larger distance for larger worker bboxes
+            track_bbox = self.tracks[tid]["bbox"]
+            bw = track_bbox[2] - track_bbox[0]
+            bh = track_bbox[3] - track_bbox[1]
+            adaptive_limit = max(config.MAX_TRACKING_DISTANCE, int(0.75 * max(bw, bh)))
+            if dist > adaptive_limit:
                 continue
 
-            # Match found! Update this track with the new detection.
+            # Match found! Smooth coordinates using Exponential Moving Average
             det = detections[d_idx]
-            self.tracks[tid]["centroid"]     = det["centroid"]
-            self.tracks[tid]["bbox"]         = det["bbox"]
+            alpha = getattr(config, 'TRACKER_SMOOTHING_ALPHA', 0.70)
+            ob = self.tracks[tid]["bbox"]
+            nb = det["bbox"]
+            sb = (
+                int(alpha * nb[0] + (1 - alpha) * ob[0]),
+                int(alpha * nb[1] + (1 - alpha) * ob[1]),
+                int(alpha * nb[2] + (1 - alpha) * ob[2]),
+                int(alpha * nb[3] + (1 - alpha) * ob[3]),
+            )
+            oc = self.tracks[tid]["centroid"]
+            nc = det["centroid"]
+            sc = (
+                int(alpha * nc[0] + (1 - alpha) * oc[0]),
+                int(alpha * nc[1] + (1 - alpha) * oc[1]),
+            )
+
+            self.tracks[tid]["centroid"]     = sc
+            self.tracks[tid]["bbox"]         = sb
             self.tracks[tid]["confidence"]   = det["confidence"]
             self.tracks[tid]["keypoints"]    = det.get("keypoints", [])
             self.tracks[tid]["edge_points"]  = det.get("edge_points", [])
@@ -218,8 +240,9 @@ class CentroidTracker:
             Sorted by worker_id for consistent display order.
         """
         output = []
+        grace = getattr(config, 'TRACKER_GRACE_FRAMES', 3)
         for tid, info in self.tracks.items():
-            if info["missing"] == 0:
+            if info["missing"] <= grace:
                 output.append({
                     "worker_id":    tid,
                     "bbox":         info["bbox"],
@@ -229,6 +252,7 @@ class CentroidTracker:
                     "edge_points":  info["edge_points"],
                     "in_vehicle":   info["in_vehicle"],
                     "vehicle_info": info["vehicle_info"],
+                    "missing":      info["missing"],
                 })
         output.sort(key=lambda x: x["worker_id"])
         return output

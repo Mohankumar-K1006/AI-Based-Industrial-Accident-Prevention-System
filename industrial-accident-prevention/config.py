@@ -32,7 +32,8 @@ YOLO_VEHICLE_MODEL_PATH = "yolov8n.pt"
 YOLO_MODEL_PATH = YOLO_POSE_MODEL_PATH
 
 # Minimum confidence score to accept a detection (0.0 – 1.0).
-YOLO_CONFIDENCE_THRESHOLD = 0.45
+# Set to 0.28 to capture workers reliably even in low light, angled poses, or partial occlusion.
+YOLO_CONFIDENCE_THRESHOLD = 0.28
 
 # COCO class ID for "person" (do not change unless using a custom model).
 PERSON_CLASS_ID = 0
@@ -44,8 +45,8 @@ PERSON_CLASS_ID = 0
 SKELETON_DRAW = True
 
 # Minimum confidence for a keypoint to be considered valid (0.0 – 1.0).
-# Keypoints below this threshold are ignored in zone checks and drawing.
-KEYPOINT_CONFIDENCE_THRESHOLD = 0.3
+# Lowered to 0.22 to reliably catch limbs, feet, and hands.
+KEYPOINT_CONFIDENCE_THRESHOLD = 0.22
 
 # COCO Pose keypoint names (17 total):
 #   0  Nose              5  Left Shoulder    10 Right Wrist
@@ -104,11 +105,19 @@ COLOR_VEHICLE = (255, 200, 0)    # Cyan
 # ──────────────────────────────────────────────
 # Maximum pixel distance between centroids in consecutive frames
 # for them to be considered the same worker.
-MAX_TRACKING_DISTANCE = 80
+# Increased to 160 to prevent worker IDs from resetting when moving quickly.
+MAX_TRACKING_DISTANCE = 160
 
 # Number of consecutive frames a worker can be missing before
 # their ID is removed from the tracker.
 MAX_FRAMES_MISSING = 30
+
+# Grace frames: keep displaying track for N frames if temporarily missed
+# to prevent annoying flickering of bounding boxes and IDs.
+TRACKER_GRACE_FRAMES = 3
+
+# Smoothing factor for bounding box coordinates (0.0 = freeze, 1.0 = no smoothing)
+TRACKER_SMOOTHING_ALPHA = 0.70
 
 # ──────────────────────────────────────────────
 #  SAFETY ZONES (polygon vertices)
@@ -183,3 +192,46 @@ ADMIN_HOST = "0.0.0.0"          # Accessible from any device on the network
 ADMIN_PORT = 5000
 ADMIN_SECRET_KEY = "industrial-safety-2026"
 ADMIN_ENABLED = True            # Set to False to disable the web dashboard
+
+# ──────────────────────────────────────────────
+#  PERFORMANCE TUNING
+# ──────────────────────────────────────────────
+# Camera capture resolution — lower = faster preprocessing.
+# Set to None to use the camera's default resolution.
+CAMERA_WIDTH  = 640
+CAMERA_HEIGHT = 480
+
+# YOLO inference image size (pixels, square).
+# Smaller = faster inference but lower detection accuracy at distance.
+#   640 → default (accurate, slow on CPU)
+#   416 → good balance
+#   320 → fastest (still reliable for nearby persons at 640×480)
+YOLO_IMGSZ = 320
+
+# Frame skipping: run AI inference every N frames.
+# On skipped frames, previous detections are reused and only the
+# display is refreshed.  Set to 1 to disable skipping.
+#   1 → full inference every frame (slowest)
+#   2 → inference every 2nd frame (recommended)
+#   3 → inference every 3rd frame (fastest, may miss fast movement)
+INFERENCE_SKIP_FRAMES = 2
+
+# Enable OpenVINO acceleration for Intel GPUs (Iris, UHD, Arc).
+# If True, the system will attempt to export models to OpenVINO
+# format on first run and use the Intel backend for inference.
+# Falls back to CPU automatically if OpenVINO is unavailable.
+ENABLE_OPENVINO = True
+
+# Enable threaded camera capture.
+# When True, camera frames are read in a background thread so
+# capture does not block AI inference.
+THREADED_CAMERA = True
+
+# Enable non-blocking asynchronous AI inference.
+# Runs AI inference in a background thread so the camera and display loop
+# runs buttery-smooth at 30-60 FPS without ever hitching or freezing.
+ASYNC_INFERENCE = True
+
+# Run vehicle detection every Nth AI cycle (default: 3) to conserve compute
+# for human pose and worker safety tracking.
+VEHICLE_INFERENCE_INTERVAL = 3

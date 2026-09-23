@@ -22,9 +22,62 @@ separate modules (tracker.py, zones.py).
 """
 
 import cv2
+import time
+import os
 import numpy as np
 from ultralytics import YOLO
 import config
+
+
+# ──────────────────────────────────────────────
+#  OPENVINO HELPER
+# ──────────────────────────────────────────────
+
+def _try_openvino_export(model, model_path):
+    """
+    Attempt to export a YOLO model to OpenVINO IR format for Intel
+    GPU/CPU acceleration.  Returns the OpenVINO model path if
+    successful, or None if OpenVINO is unavailable.
+
+    The exported model is cached on disk so subsequent runs skip
+    the export step.
+    """
+    if not config.ENABLE_OPENVINO:
+        return None
+
+    # Check if OpenVINO export already exists
+    base_name = os.path.splitext(model_path)[0]
+    openvino_dir = f"{base_name}_openvino_model"
+    openvino_xml = os.path.join(openvino_dir, f"{base_name}.xml")
+
+    if os.path.exists(openvino_xml):
+        print(f"[detector] Found cached OpenVINO model: {openvino_dir}")
+        return openvino_dir
+
+    try:
+        import openvino  # noqa: F401
+        print(f"[detector] Exporting {model_path} to OpenVINO format...")
+        export_path = model.export(
+            format='openvino',
+            imgsz=config.YOLO_IMGSZ,
+            half=False,
+        )
+        print(f"[detector] OpenVINO export complete: {export_path}")
+        return export_path
+    except ImportError:
+        print("[detector] OpenVINO not installed. "
+              "Install with: pip install openvino")
+        print("[detector] Falling back to PyTorch CPU inference.")
+        return None
+    except Exception as e:
+        print(f"[detector] OpenVINO export failed: {e}")
+        print("[detector] Falling back to PyTorch CPU inference.")
+        return None
+
+
+# Track inference timing for performance monitoring
+last_pose_inference_ms = 0.0
+last_vehicle_inference_ms = 0.0
 
 
 # ──────────────────────────────────────────────
@@ -34,6 +87,10 @@ import config
 def load_model():
     """
     Load the YOLO pose model for person detection with keypoints.
+
+    If OpenVINO is enabled and available, attempts to export and
+    load an OpenVINO-optimised version for Intel GPU acceleration.
+    Falls back to the standard PyTorch model if export fails.
 
     Returns:
         model : ultralytics.YOLO — the loaded YOLO pose model object.
@@ -45,12 +102,28 @@ def load_model():
     """
     model = YOLO(config.YOLO_POSE_MODEL_PATH)
     print(f"[detector] YOLO pose model loaded: {config.YOLO_POSE_MODEL_PATH}")
+
+    # Attempt OpenVINO acceleration
+    ov_path = _try_openvino_export(model, config.YOLO_POSE_MODEL_PATH)
+    if ov_path:
+        try:
+            model = YOLO(ov_path, task='pose')
+            print(f"[detector] ✓ Pose model using OpenVINO backend")
+        except Exception as e:
+            print(f"[detector] Failed to load OpenVINO pose model: {e}")
+            model = YOLO(config.YOLO_POSE_MODEL_PATH)
+            print(f"[detector] Reverted to PyTorch pose model")
+    else:
+        print(f"[detector] Pose model using PyTorch CPU backend")
+
     return model
 
 
 def load_vehicle_model():
     """
     Load the standard YOLO model for vehicle detection.
+
+    If OpenVINO is enabled, attempts acceleration like the pose model.
 
     Returns:
         model : ultralytics.YOLO — the loaded YOLO model object.
@@ -61,6 +134,20 @@ def load_vehicle_model():
     """
     model = YOLO(config.YOLO_VEHICLE_MODEL_PATH)
     print(f"[detector] YOLO vehicle model loaded: {config.YOLO_VEHICLE_MODEL_PATH}")
+
+    # Attempt OpenVINO acceleration
+    ov_path = _try_openvino_export(model, config.YOLO_VEHICLE_MODEL_PATH)
+    if ov_path:
+        try:
+            model = YOLO(ov_path, task='detect')
+            print(f"[detector] ✓ Vehicle model using OpenVINO backend")
+        except Exception as e:
+            print(f"[detector] Failed to load OpenVINO vehicle model: {e}")
+            model = YOLO(config.YOLO_VEHICLE_MODEL_PATH)
+            print(f"[detector] Reverted to PyTorch vehicle model")
+    else:
+        print(f"[detector] Vehicle model using PyTorch CPU backend")
+
     return model
 
 
@@ -90,8 +177,12 @@ def detect_persons(model, frame):
                 "in_vehicle" : False             — default, updated later
                 "vehicle_info": None             — default, updated later
     """
-    # Run YOLO pose inference
-    results = model(frame, conf=config.YOLO_CONFIDENCE_THRESHOLD, verbose=False)
+    # Run YOLO pose inference with optimised image size
+    global last_pose_inference_ms
+    t_start = time.perf_counter()
+    results = model(frame, conf=config.YOLO_CONFIDENCE_THRESHOLD,
+                    imgsz=config.YOLO_IMGSZ, verbose=False)
+    last_pose_inference_ms = (time.perf_counter() - t_start) * 1000
 
     detections = []
 
@@ -183,7 +274,11 @@ def detect_vehicles(model, frame):
     if not config.DETECT_VEHICLES:
         return []
 
-    results = model(frame, conf=config.YOLO_CONFIDENCE_THRESHOLD, verbose=False)
+    global last_vehicle_inference_ms
+    t_start = time.perf_counter()
+    results = model(frame, conf=config.YOLO_CONFIDENCE_THRESHOLD,
+                    imgsz=config.YOLO_IMGSZ, verbose=False)
+    last_vehicle_inference_ms = (time.perf_counter() - t_start) * 1000
 
     vehicles = []
 
