@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local credentials and private runtime data
+.env
+.env.*
+!.env.example
+employees.json
+managers.json
+face_encodings.pkl
+*_log.csv
+alerts/
+clips/
+reports/
+zones_config.json

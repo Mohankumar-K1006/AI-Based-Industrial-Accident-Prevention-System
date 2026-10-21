@@ -56,11 +56,21 @@ _active_zones = []     # list of dicts: { "id", "type", "name", "points" (np.arr
 _zones_loaded = False  # flag to avoid loading repeatedly
 
 
+_zones_last_mtime = 0.0
+
+
 def _ensure_zones_loaded():
-    """Load zones from file or config defaults if not yet loaded."""
-    global _zones_loaded
-    if not _zones_loaded:
+    """Load zones from file or config defaults if not yet loaded or if modified on disk."""
+    global _zones_loaded, _zones_last_mtime
+    mtime = 0.0
+    if os.path.exists(config.ZONES_CONFIG_FILE):
+        try:
+            mtime = os.path.getmtime(config.ZONES_CONFIG_FILE)
+        except OSError:
+            pass
+    if not _zones_loaded or (mtime > 0 and mtime > _zones_last_mtime):
         load_zones()
+        _zones_last_mtime = mtime
         _zones_loaded = True
 
 
@@ -305,6 +315,19 @@ def get_worker_status_multi(edge_points):
                     return STATUS_WARNING
 
     return STATUS_SAFE
+
+
+def get_breached_danger_zone(edge_points) -> dict | None:
+    """Return the danger zone dict that edge_points fall inside, or None."""
+    _ensure_zones_loaded()
+    if not edge_points:
+        return None
+    for zone in _active_zones:
+        if zone["type"] == "DANGER":
+            for point in edge_points:
+                if is_inside_zone(point, zone["points"]):
+                    return zone
+    return None
 
 
 # ──────────────────────────────────────────────

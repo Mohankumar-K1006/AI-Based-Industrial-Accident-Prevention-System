@@ -66,7 +66,7 @@ class SharedState:
     def set_frame(self, frame):
         """Store the latest frame from the CV pipeline."""
         with self._lock:
-            self._current_frame = frame.copy()
+            self._current_frame = frame
 
     def get_frame(self):
         """Get a copy of the latest frame. Returns None if no frame yet."""
@@ -89,7 +89,7 @@ class SharedState:
                 edge_points, in_vehicle, vehicle_info
         """
         with self._lock:
-            self._workers = copy.deepcopy(workers_with_status)
+            self._workers = [dict(w) for w in workers_with_status]
 
             # Update worker history
             current_time = time.time()

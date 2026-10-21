@@ -1,18 +1,36 @@
 {
   "zones": [
     {
-      "id": "default_warning",
-      "type": "WARNING",
-      "name": "Default Warning Zone",
-      "points": [[200, 150], [500, 150], [500, 400], [200, 400]],
-      "created_at": "2026-09-07T00:00:00"
-    },
-    {
-      "id": "default_danger",
+      "id": "zone_1792575016692",
       "type": "DANGER",
-      "name": "Default Danger Zone",
-      "points": [[280, 200], [420, 200], [420, 350], [280, 350]],
-      "created_at": "2026-09-07T00:00:00"
+      "name": "DANGER Zone 1792575016692",
+      "points": [
+        [
+          176,
+          146
+        ],
+        [
+          602,
+          134
+        ],
+        [
+          610,
+          585
+        ],
+        [
+          174,
+          583
+        ],
+        [
+          174,
+          144
+        ],
+        [
+          178,
+          147
+        ]
+      ],
+      "created_at": "2026-10-21T09:30:16.692Z"
     }
   ]
 }

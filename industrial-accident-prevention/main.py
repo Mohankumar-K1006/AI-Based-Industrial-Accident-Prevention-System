@@ -60,6 +60,7 @@ import detector
 import tracker
 import zones
 import alerts
+import alert_system
 from shared_state import state
 
 
@@ -264,8 +265,9 @@ def main():
     # 1c. Create the centroid tracker.
     worker_tracker = tracker.CentroidTracker()
 
-    # 1d. Create the alert manager.
+    # 1d. Create the alert managers.
     alert_manager = alerts.AlertManager()
+    adv_alerts = alert_system.AlertManager()
 
     # 1e. Load zone configurations (from file or config defaults).
     zones.load_zones()
@@ -285,7 +287,13 @@ def main():
         admin_url = ""
 
     # 1g. Open the video source.
-    cap = cv2.VideoCapture(config.VIDEO_SOURCE)
+    if isinstance(config.VIDEO_SOURCE, int) and sys.platform.startswith("win"):
+        cap = cv2.VideoCapture(config.VIDEO_SOURCE, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(config.VIDEO_SOURCE)
+
+    if not cap.isOpened() and isinstance(config.VIDEO_SOURCE, int):
+        cap = cv2.VideoCapture(config.VIDEO_SOURCE)
 
     if not cap.isOpened():
         print(f"\n[ERROR] Cannot open video source: {config.VIDEO_SOURCE}")
@@ -395,6 +403,8 @@ def main():
 
             # Multi-point zone check: any body edge in a zone triggers it
             status = zones.get_worker_status_multi(edge_pts)
+            breached = zones.get_breached_danger_zone(edge_pts) if status == zones.STATUS_DANGER else None
+            zid = breached["id"] if breached else "default"
 
             # Build enriched worker data for shared state
             worker_data = {
@@ -406,6 +416,7 @@ def main():
                 "edge_points": edge_pts,
                 "in_vehicle": worker.get("in_vehicle", False),
                 "vehicle_info": worker.get("vehicle_info"),
+                "zone_id":   zid,
             }
             workers_with_status.append(worker_data)
 
@@ -433,9 +444,14 @@ def main():
         frame = detector.draw_vehicles(frame, vehicles)
 
         # ─────────────────────────────────────
-        #  3i. Draw alert banners (top-right)
+        #  3i. Draw alert banners + advanced alerts
         # ─────────────────────────────────────
         frame = alert_manager.draw_alert_banner(frame, workers_with_status)
+        # Compute highest severity for this frame
+        _order = {"DANGER": 2, "WARNING": 1, "SAFE": 0}
+        _highest = max((w.get("status", "SAFE") for w in workers_with_status),
+                       key=lambda s: _order.get(s, 0), default="SAFE")
+        frame = adv_alerts.update(_highest, frame, frame_count, workers_with_status)
 
         # ─────────────────────────────────────
         #  3j. Draw status panel (top-left HUD)
@@ -511,9 +527,13 @@ def main():
             state_str = "ON" if config.SKELETON_DRAW else "OFF"
             print(f"\n[main] Skeleton drawing toggled: {state_str}")
 
+        elif key == ord('m') or key == ord('M'):
+            adv_alerts.toggle_mute()
+
     # ═══════════════════════════════════════════
     #  STEP 4: CLEANUP
     # ═══════════════════════════════════════════
+    adv_alerts.shutdown()
     cap.release()
     cv2.destroyAllWindows()
 

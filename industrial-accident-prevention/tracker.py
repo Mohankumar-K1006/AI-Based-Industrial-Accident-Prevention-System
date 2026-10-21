@@ -233,6 +233,14 @@ class CentroidTracker:
         output.sort(key=lambda x: x["worker_id"])
         return output
 
+    def get_active_tracks(self):
+        """
+        Return the current active tracked workers without advancing frame counters.
+        Used on skipped frames to maintain high display FPS with low CPU usage.
+        """
+        return self._build_output()
+
+
     @staticmethod
     def _euclidean(point_a, point_b):
         """

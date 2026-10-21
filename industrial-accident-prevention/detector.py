@@ -90,8 +90,9 @@ def detect_persons(model, frame):
                 "in_vehicle" : False             — default, updated later
                 "vehicle_info": None             — default, updated later
     """
-    # Run YOLO pose inference
-    results = model(frame, conf=config.YOLO_CONFIDENCE_THRESHOLD, verbose=False)
+    # Run YOLO pose inference with optimized input size for higher FPS
+    imgsz = getattr(config, "YOLO_IMG_SIZE", 320)
+    results = model(frame, imgsz=imgsz, conf=config.YOLO_CONFIDENCE_THRESHOLD, verbose=False)
 
     detections = []
 
@@ -183,7 +184,8 @@ def detect_vehicles(model, frame):
     if not config.DETECT_VEHICLES:
         return []
 
-    results = model(frame, conf=config.YOLO_CONFIDENCE_THRESHOLD, verbose=False)
+    imgsz = getattr(config, "YOLO_IMG_SIZE", 320)
+    results = model(frame, imgsz=imgsz, conf=config.YOLO_CONFIDENCE_THRESHOLD, verbose=False)
 
     vehicles = []
 
