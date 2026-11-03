@@ -150,6 +150,8 @@ def api_workers():
             "vehicle_info": w.get("vehicle_info"),
             "edge_points_count": len(w.get("edge_points", [])),
             "time_in_zone": time_in_zone,
+            "display_name": w.get("display_name", f"Worker {wid}"),
+            "employee_id": w.get("employee_id"),
         })
 
     return jsonify({

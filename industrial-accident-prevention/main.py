@@ -61,6 +61,7 @@ import tracker
 import zones
 import alerts
 import alert_system
+import face_identity
 from shared_state import state
 
 
@@ -182,14 +183,17 @@ def draw_worker(frame, worker, status):
     vehicle_info    = worker.get("vehicle_info")
     keypoints       = worker.get("keypoints", [])
     edge_points     = worker.get("edge_points", [])
+    display_name    = worker.get("display_name", f"Worker {wid}")
     color           = zones.get_status_color(status)
 
     # Bounding box coloured by status
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, config.BBOX_THICKNESS)
 
-    # Label: "Worker 1 [SAFE] 0.87" or "Driver 1 [SAFE] 0.87 (Car)"
-    label_prefix = "Driver" if in_vehicle else "Worker"
-    label = f"{label_prefix} {wid} [{status}] {conf:.2f}"
+    # Label: use recognised name when available, else "Worker N"
+    if in_vehicle:
+        label = f"Driver {wid} [{status}] {conf:.2f}"
+    else:
+        label = f"{display_name} [{status}] {conf:.2f}"
     if in_vehicle and vehicle_info:
         label += f" ({vehicle_info['class_name']})"
 
@@ -269,7 +273,10 @@ def main():
     alert_manager = alerts.AlertManager()
     adv_alerts = alert_system.AlertManager()
 
-    # 1e. Load zone configurations (from file or config defaults).
+    # 1e. Initialise face identity module (loads employee encodings).
+    face_identity.init()
+
+    # 1f. Load zone configurations (from file or config defaults).
     zones.load_zones()
     active_zones = zones.get_active_zones()
     print(f"\n[main] Loaded {len(active_zones)} safety zones:")
@@ -341,6 +348,20 @@ def main():
 
     TERMINAL_LOG_INTERVAL = 30
 
+    # ── Danger-zone identity verification ──────────────────────────────────
+    # When a person first enters a danger zone, we wait DANGER_ID_GRACE_SECS
+    # before posting the alert log entry.  During that window, face recognition
+    # runs continuously.  After the window expires we post the alert with the
+    # BEST identity available:
+    #   • Enrolled employee name (if recognised) → shown by name
+    #   • Not in database                        → shown as "Unknown Person"
+    # The dict maps:  worker_id -> {
+    #     "entry_time": float,   # time.time() when they entered danger zone
+    #     "posted":     bool,    # True once the alert entry has been written
+    # }
+    _danger_pending = {}
+    DANGER_ID_GRACE_SECS = 1.5   # seconds to wait for recognition before posting
+
     # ═══════════════════════════════════════════
     #  STEP 3: MAIN PROCESSING LOOP
     # ═══════════════════════════════════════════
@@ -406,6 +427,23 @@ def main():
             breached = zones.get_breached_danger_zone(edge_pts) if status == zones.STATUS_DANGER else None
             zid = breached["id"] if breached else "default"
 
+            # ── Face identification ──
+            # Run recognition on ALL workers so identities are cached early.
+            # This ensures when a worker enters a danger zone, their enrolled
+            # name is already known and displayed accurately in the event log.
+            # The face_identity module's RECHECK_INTERVAL prevents excessive
+            # DeepFace calls (only re-checks every 2 seconds for unmatched workers,
+            # and caches positive matches for 5 minutes).
+            worker_kps = worker.get("keypoints", [])
+            identity = face_identity.identify_worker(
+                frame, tuple(worker["bbox"]), wid, keypoints=worker_kps)
+
+            display_name = identity["display_name"]
+            employee_id  = identity.get("employee_id")
+
+            # Propagate display_name into the worker dict so draw_worker can use it
+            worker["display_name"] = display_name
+
             # Build enriched worker data for shared state
             worker_data = {
                 "worker_id": wid,
@@ -417,6 +455,8 @@ def main():
                 "in_vehicle": worker.get("in_vehicle", False),
                 "vehicle_info": worker.get("vehicle_info"),
                 "zone_id":   zid,
+                "display_name": display_name,
+                "employee_id":  employee_id,
             }
             workers_with_status.append(worker_data)
 
@@ -425,15 +465,61 @@ def main():
                 num_warnings += 1
                 if should_log:
                     alert_manager.warning_alert(wid)
-                # Push to shared state alert log
-                state.add_alert(wid, "WARNING",
-                                f"Worker {wid} approaching danger zone")
+                # WARNING alert — use best available name or "Unknown Person"
+                if employee_id:
+                    warn_name = display_name
+                else:
+                    warn_name = "Unknown Person"
+                alert_msg = f"{warn_name} approaching danger zone"
+                state.add_alert(wid, "WARNING", alert_msg,
+                                employee_id=employee_id, display_name=warn_name)
 
             elif status == zones.STATUS_DANGER:
                 num_dangers += 1
                 alert_manager.danger_alert(wid)
-                state.add_alert(wid, "DANGER",
-                                f"Worker {wid} entered restricted zone!")
+
+                now_t = time.time()
+
+                # ── Track this worker's danger-zone entry ──────────────────
+                if wid not in _danger_pending:
+                    # First frame in the danger zone — start the grace window
+                    _danger_pending[wid] = {
+                        "entry_time": now_t,
+                        "posted":     False,
+                    }
+
+                pending = _danger_pending[wid]
+                time_in_danger = now_t - pending["entry_time"]
+
+                if not pending["posted"]:
+                    if time_in_danger >= DANGER_ID_GRACE_SECS or employee_id:
+                        # Grace period elapsed (or already identified) — post alert now.
+                        # If employee recognised → show their real name.
+                        # If not in database → show "Unknown Person".
+                        if employee_id:
+                            alert_name = display_name     # real enrolled name
+                            alert_msg  = f"{alert_name} entered the danger zone"
+                        else:
+                            alert_name = "Unknown Person" # not enrolled
+                            alert_msg  = f"Unknown Person entered the danger zone"
+
+                        state.add_alert(wid, "DANGER", alert_msg,
+                                        employee_id=employee_id,
+                                        display_name=alert_name)
+                        pending["posted"] = True
+                else:
+                    # Alert already posted — if identity was just resolved,
+                    # the shared_state dedup will upgrade the name automatically.
+                    if employee_id:
+                        alert_name = display_name
+                        alert_msg  = f"{alert_name} entered the danger zone"
+                        state.add_alert(wid, "DANGER", alert_msg,
+                                        employee_id=employee_id,
+                                        display_name=alert_name)
+
+            # ── Clear pending entry when worker leaves danger zone ──────────
+            if status != zones.STATUS_DANGER and wid in _danger_pending:
+                del _danger_pending[wid]
 
             # Draw this worker's bounding box, skeleton, label, centroid
             frame = draw_worker(frame, worker, status)
@@ -509,7 +595,8 @@ def main():
         elif key == ord('r') or key == ord('R'):
             worker_tracker = tracker.CentroidTracker()
             alert_manager = alerts.AlertManager()
-            print("\n[main] Tracker RESET. All worker IDs cleared.")
+            face_identity.clear_all()
+            print("\n[main] Tracker RESET. All worker IDs and face caches cleared.")
 
         elif key == ord('z') or key == ord('Z'):
             show_zones = not show_zones

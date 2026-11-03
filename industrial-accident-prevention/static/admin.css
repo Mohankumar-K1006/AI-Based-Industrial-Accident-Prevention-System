@@ -138,6 +138,35 @@ body {
     font-weight: 500;
 }
 
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.nav-btn {
+    text-decoration: none;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-glass);
+    padding: 7px 14px;
+    border-radius: var(--radius-md);
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.nav-btn:hover {
+    color: #ffffff;
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
 .nav-stats {
     display: flex;
     align-items: center;
@@ -844,4 +873,39 @@ body {
     .system-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ── Employee Name Tags (Workers Table) ── */
+.emp-id-tag {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 1px 6px;
+    font-size: 0.7rem;
+    font-family: 'JetBrains Mono', monospace;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-primary);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    letter-spacing: 0.3px;
+}
+
+.emp-id-tag.unidentified {
+    background: rgba(148, 163, 184, 0.1);
+    color: var(--text-muted);
+    border-color: rgba(148, 163, 184, 0.15);
+}
+
+/* ── Alert Log Employee Name ── */
+.alert-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-right: 4px;
+    font-size: 0.82rem;
+}
+
+.alert-emp-id {
+    font-size: 0.7rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+    margin-right: 6px;
 }

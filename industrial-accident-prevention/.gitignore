@@ -15,9 +15,15 @@ env/
 # YOLO model weights (large files - users should download separately)
 *.pt
 
-# Output files
+# Output / runtime files
 output/
 screenshots/
+clips/
+alerts/
+reports/
+
+# Large CSV logs (runtime generated)
+*.csv
 
 # Videos (large files)
 videos/
@@ -30,5 +36,18 @@ videos/
 .DS_Store
 Thumbs.db
 
-# Gemini
+# Gemini / agents
 .agents/
+
+# Sensitive environment config
+.env
+
+# Database (runtime data)
+data/*.db
+data/*.db-journal
+
+# Face encodings binary (auto-regenerated)
+face_encodings.pkl
+
+# Dev/patch scripts
+patch_*.py

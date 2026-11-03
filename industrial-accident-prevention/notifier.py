@@ -86,6 +86,8 @@ def _send_email(manager: dict, zone_id: str, machine: str, ts: str, img_path: st
     port = int(os.environ.get("SMTP_PORT", "465"))
     user = os.environ.get("SMTP_USER", "")
     pwd  = os.environ.get("SMTP_PASSWORD", "")
+    print(f"[notifier] SMTP config: host={host}, port={port}, "
+          f"user={'SET' if user else 'MISSING'}, password={'SET' if pwd else 'MISSING'}")
     if not user or not pwd:
         _log_notification(False, "email", zone_id, "SMTP_USER or SMTP_PASSWORD not set")
         print("[notifier] WARN: SMTP credentials not configured, skipping email")
@@ -171,6 +173,7 @@ def _send_email(manager: dict, zone_id: str, machine: str, ts: str, img_path: st
 
     for h, p in attempts:
         try:
+            print(f"[notifier] SMTP connecting to {h}:{p}...")
             if p == 465:
                 with smtplib.SMTP_SSL(h, p, timeout=25) as srv:
                     srv.login(user, pwd)
@@ -181,9 +184,17 @@ def _send_email(manager: dict, zone_id: str, machine: str, ts: str, img_path: st
                     srv.login(user, pwd)
                     srv.sendmail(user, [to_addr], msg.as_string())
             sent = True
+            print(f"[notifier] SMTP sendmail completed on {h}:{p}")
             break
+        except smtplib.SMTPAuthenticationError as exc:
+            last_err = exc
+            print(f"[notifier] SMTP AUTH FAILED on {h}:{p}: {exc}")
+        except smtplib.SMTPConnectError as exc:
+            last_err = exc
+            print(f"[notifier] SMTP CONNECT FAILED on {h}:{p}: {exc}")
         except Exception as exc:
             last_err = exc
+            print(f"[notifier] SMTP error on {h}:{p}: {type(exc).__name__}: {exc}")
 
     if sent:
         _log_notification(True, "email", zone_id, f"sent to {to_addr}")

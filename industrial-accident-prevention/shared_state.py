@@ -160,22 +160,62 @@ class SharedState:
     #  ALERT LOG
     # ──────────────────────────────────────────
 
-    def add_alert(self, worker_id, status, message):
+    def __init_alert_dedup(self):
+        """Lazy-init the alert dedup tracker."""
+        if not hasattr(self, '_alert_last_logged'):
+            self._alert_last_logged = {}  # "worker_id::status" -> timestamp
+            self._alert_dedup_secs = 10.0  # min seconds between same alert
+
+    def add_alert(self, worker_id, status, message, employee_id=None, display_name=None):
         """
-        Add an alert entry to the log.
+        Add an alert entry to the log with per-worker de-duplication.
+
+        Prevents the same worker+status from flooding the log every frame.
+        Each unique worker+status combo is logged at most once every 10 seconds.
 
         Args:
-            worker_id : int
-            status    : str — "WARNING" or "DANGER"
-            message   : str — alert description
+            worker_id    : int
+            status       : str — "WARNING" or "DANGER"
+            message      : str — alert description
+            employee_id  : str or None — matched employee ID
+            display_name : str or None — matched employee name
         """
         with self._lock:
+            self.__init_alert_dedup()
+
+            # De-duplicate: skip if same worker+status was logged recently
+            dedup_key = f"{worker_id}::{status}"
+            now = time.time()
+            last_logged = self._alert_last_logged.get(dedup_key, 0.0)
+            if now - last_logged < self._alert_dedup_secs:
+                # Update display_name if a better one became available.
+                # This handles the case where a worker initially enters
+                # a zone as "Worker N" (unidentified) and face recognition
+                # later resolves their real name.
+                # Retroactively upgrade "Unknown Person" → enrolled name when
+                # face recognition resolves the identity after the alert was posted.
+                if employee_id and display_name:
+                    for alert in reversed(self._alert_log):
+                        if alert["worker_id"] == worker_id and alert["status"] == status:
+                            old_eid = alert.get("employee_id")
+                            if not old_eid:
+                                # Upgrade from Unknown Person / Worker N to real name
+                                alert["display_name"] = display_name
+                                alert["employee_id"]  = employee_id
+                                alert["message"]      = message
+                            break
+                return
+
+            self._alert_last_logged[dedup_key] = now
+
             self._alert_log.append({
-                "timestamp": time.time(),
+                "timestamp": now,
                 "time_str": time.strftime("%H:%M:%S"),
                 "worker_id": worker_id,
                 "status": status,
                 "message": message,
+                "employee_id": employee_id,
+                "display_name": display_name,
             })
             # Trim to max size
             if len(self._alert_log) > self._max_alerts:

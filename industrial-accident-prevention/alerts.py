@@ -199,15 +199,16 @@ class AlertManager:
         for w in workers_with_status:
             wid    = w["worker_id"]
             status = w["status"]
+            display_name = w.get("display_name", f"Worker {wid}")
 
             if status == "WARNING":
                 messages.append({
-                    "text":  f"WARNING: Worker {wid} approaching danger zone",
+                    "text":  f"WARNING: {display_name} approaching danger zone",
                     "color": config.COLOR_WARNING,
                 })
             elif status == "DANGER":
                 messages.append({
-                    "text":  f"DANGER: Worker {wid} entered restricted zone!",
+                    "text":  f"DANGER: {display_name} entered danger zone!",
                     "color": config.COLOR_DANGER,
                 })
 

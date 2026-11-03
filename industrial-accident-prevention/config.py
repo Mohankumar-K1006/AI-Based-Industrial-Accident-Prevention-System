@@ -6,6 +6,7 @@ Edit this file to change video source, zone coordinates, thresholds, etc.
 No other file should contain hardcoded magic numbers.
 """
 
+import os
 import numpy as np
 
 # ──────────────────────────────────────────────

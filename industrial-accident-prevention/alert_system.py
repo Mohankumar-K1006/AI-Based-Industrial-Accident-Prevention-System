@@ -518,7 +518,8 @@ class AlertManager:
                 if wk.get("status") == "DANGER" and "bbox" in wk:
                     x1, y1, x2, y2 = wk["bbox"]
                     cv2.rectangle(save_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
-                    label = f"DANGER: Worker {wk.get('worker_id', track_id)}"
+                    dn = wk.get('display_name', f"Worker {wk.get('worker_id', track_id)}")
+                    label = f"DANGER: {dn}"
                     cv2.putText(save_frame, label, (x1, max(y1 - 10, 20)),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
@@ -554,10 +555,11 @@ class AlertManager:
             print(f"[alert_system] face recognition error: {exc}")
 
     def _check_repeat_danger_notify(self, frame, frame_no, workers):
-        """If worker remains continuously in DANGER, periodically trigger notification with a fresh snapshot.
-        notify_manager() enforces the 10-minute cooldown."""
+        """If worker remains continuously in DANGER, periodically trigger notification.
+        Employee alert emails are sent every 2 minutes (face_recognizer.COOLDOWN_SECS=120).
+        Manager notifications use their own cooldown (notifier.COOLDOWN_SECS=600)."""
         now = time.time()
-        if now - getattr(self, "_last_repeat_check", 0.0) < 5.0:
+        if now - getattr(self, "_last_repeat_check", 0.0) < 30.0:
             return
         self._last_repeat_check = now
 
@@ -582,19 +584,21 @@ class AlertManager:
                 if wk.get("status") == "DANGER" and "bbox" in wk:
                     x1, y1, x2, y2 = wk["bbox"]
                     cv2.rectangle(save_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
-                    label = f"DANGER: Worker {wk.get('worker_id', track_id)}"
+                    dn = wk.get('display_name', f"Worker {wk.get('worker_id', track_id)}")
+                    label = f"DANGER: {dn}"
                     cv2.putText(save_frame, label, (x1, max(y1 - 10, 20)),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         try:
             cv2.imwrite(img_path, save_frame)
-        except Exception:
+        except Exception as e:
+            print(f"[alert_system] Error saving repeat snapshot: {e}")
             img_path = ""
 
         try:
             from notifier import notify_manager
             notify_manager(target_zone, img_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[alert_system] notify_manager error (repeat): {exc}")
 
         # face recognition on repeat danger
         try:
@@ -603,8 +607,8 @@ class AlertManager:
                 for wk in workers:
                     if wk.get("status") == "DANGER" and "bbox" in wk:
                         recognize_and_notify(frame, tuple(wk["bbox"]), target_zone, img_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[alert_system] face recognition error (repeat): {exc}")
 
     # ── visual overlays ──
     def _draw_visual(self, frame, state, workers):

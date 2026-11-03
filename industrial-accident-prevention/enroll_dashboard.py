@@ -1,8 +1,44 @@
 # -*- coding: utf-8 -*-
 """enroll_dashboard.py — Streamlit employee enrollment for face recognition (deepface)."""
 
-import json
+# ── Fix UnicodeEncodeError on Windows (cp1252) caused by DeepFace emoji logs ──
+# DeepFace's logger.py calls print("\u26a0\ufe0f ...") on import which crashes
+# on Windows cp1252. Monkey-patch builtins.print to replace unencodable chars
+# before the import, then restore the real print immediately after.
+import builtins
+import sys
 import os
+
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+_real_print = builtins.print
+
+def _safe_print(*args, **kwargs):
+    enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+    safe = []
+    for a in args:
+        s = str(a)
+        try:
+            s.encode(enc)
+            safe.append(s)
+        except (UnicodeEncodeError, LookupError):
+            safe.append(s.encode("ascii", errors="replace").decode("ascii"))
+    try:
+        _real_print(*safe, **kwargs)
+    except (UnicodeEncodeError, LookupError):
+        pass
+
+builtins.print = _safe_print
+try:
+    from deepface import DeepFace
+    _HAS_DF = True
+except ImportError:
+    _HAS_DF = False
+finally:
+    builtins.print = _real_print  # always restore original print
+# ─────────────────────────────────────────────────────────────────────────────
+
+import json
 import pickle
 import re
 from pathlib import Path
@@ -10,12 +46,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 import streamlit as st
-
-try:
-    from deepface import DeepFace
-    _HAS_DF = True
-except ImportError:
-    _HAS_DF = False
 
 _ROOT = Path(__file__).resolve().parent
 EMPLOYEES_FILE = str(_ROOT / "employees.json")
@@ -178,34 +208,43 @@ def main():
                 if not all_embeddings:
                     st.error("No valid face embeddings could be computed. Enrollment aborted.")
                 else:
-                    # Average the embeddings for robustness
-                    avg_embedding = np.mean(all_embeddings, axis=0)
+                    # Save to SQLite database (stores ALL individual embeddings
+                    # as separate templates for better multi-angle recognition)
+                    import employee_db
+                    employee_db.init()
+                    success = employee_db.enroll_employee(
+                        employee_id=emp_id.strip(),
+                        full_name=full_name.strip(),
+                        embeddings=all_embeddings,
+                        department=department.strip(),
+                        personal_email=personal_email.strip(),
+                        zone_ids=selected_zones,
+                        model_name=MODEL_NAME,
+                    )
 
-                    # Save metadata
-                    emp_data = {
-                        "employee_id": emp_id.strip(),
-                        "full_name": full_name.strip(),
-                        "department": department.strip(),
-                        "personal_email": personal_email.strip(),
-                        "zone_ids": selected_zones,
-                    }
-                    employees.append(emp_data)
-                    _save_employees(employees)
+                    if success:
+                        # Notify face_identity to reload templates
+                        try:
+                            import face_identity
+                            face_identity.reload_templates()
+                        except Exception:
+                            pass
 
-                    # Save encoding
-                    encodings = _load_encodings()
-                    encodings[emp_id.strip()] = avg_embedding
-                    _save_encodings(encodings)
-
-                    st.success(f"Employee **{full_name.strip()}** enrolled successfully "
-                               f"with {len(all_embeddings)} photo(s)!")
-                    st.balloons()
+                        st.success(f"Employee **{full_name.strip()}** enrolled successfully "
+                                   f"with {len(all_embeddings)} face template(s)!")
+                        st.balloons()
+                    else:
+                        st.error("Enrollment failed. Check the logs for details.")
 
     # ── Tab 2: Manage ──
     with tab_manage:
         st.subheader("Enrolled Employees")
 
-        employees = _load_employees()
+        # Read from SQLite database
+        import employee_db
+        employee_db.init()
+        employees = employee_db.get_all_employees()
+
         if not employees:
             st.info("No employees enrolled yet.")
         else:
@@ -220,14 +259,17 @@ def main():
             emp_ids = [e["employee_id"] for e in employees]
             delete_id = st.selectbox("Select Employee ID to delete", emp_ids)
             if st.button("Delete Employee", type="secondary"):
-                employees = [e for e in employees if e["employee_id"] != delete_id]
-                _save_employees(employees)
+                employee_db.hard_delete_employee(delete_id)
+                employee_db.sync_to_legacy_files()
 
-                encodings = _load_encodings()
-                encodings.pop(delete_id, None)
-                _save_encodings(encodings)
+                # Notify face_identity to reload
+                try:
+                    import face_identity
+                    face_identity.reload_templates()
+                except Exception:
+                    pass
 
-                st.success(f"Employee {delete_id} deleted (metadata + encoding removed)")
+                st.success(f"Employee {delete_id} deleted")
                 st.rerun()
 
 

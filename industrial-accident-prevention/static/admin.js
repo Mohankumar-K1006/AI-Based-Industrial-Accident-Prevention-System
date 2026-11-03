@@ -94,7 +94,7 @@ function startPolling() {
 
     // Alerts: every 1.5 seconds
     pollAlerts();
-    AppState.pollTimers.alerts = setInterval(pollAlerts, 1500);
+    AppState.pollTimers.alerts = setInterval(pollAlerts, 1000);
 }
 
 
@@ -166,9 +166,15 @@ function renderWorkersTable(workers) {
             ? `<span class="vehicle-badge">🚗 ${w.vehicle_info?.class_name || 'Vehicle'}</span>`
             : '<span style="color: var(--text-muted)">—</span>';
 
+        // Show enrolled employee name if identified, otherwise fallback to Worker N
+        const nameDisplay = w.display_name || `Worker ${w.worker_id}`;
+        const empIdTag = w.employee_id
+            ? `<span class="emp-id-tag">${w.employee_id}</span>`
+            : `<span class="emp-id-tag unidentified">ID: ${w.worker_id}</span>`;
+
         html += `
             <tr>
-                <td><strong style="color: var(--text-primary)">Worker ${w.worker_id}</strong></td>
+                <td><strong style="color: var(--text-primary)">${nameDisplay}</strong><br>${empIdTag}</td>
                 <td><span class="status-badge ${statusClass}">${statusIcon} ${w.status}</span></td>
                 <td><span class="coord-text">(${w.centroid[0]}, ${w.centroid[1]})</span></td>
                 <td><span class="coord-text">${w.edge_points_count}/17</span></td>
@@ -213,10 +219,16 @@ function renderAlertLog(alerts) {
     for (const alert of reversed) {
         const statusClass = alert.status.toLowerCase();
         const icon = alert.status === 'DANGER' ? '🚨' : '⚠️';
+        // Show the enrolled employee name prominently in the alert entry
+        const empName = alert.display_name || `Worker ${alert.worker_id}`;
+        const empIdInfo = alert.employee_id
+            ? `<span class="alert-emp-id">[${alert.employee_id}]</span>`
+            : '';
 
         html += `
             <div class="alert-entry ${statusClass}">
                 <span class="alert-time">${alert.time_str}</span>
+                <span class="alert-name">${empName}</span> ${empIdInfo}
                 <span class="alert-message">${icon} ${alert.message}</span>
             </div>`;
     }
